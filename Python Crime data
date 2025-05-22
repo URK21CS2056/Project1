@@ -1,0 +1,86 @@
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, count, year, month, dayofweek
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+
+# Step 1: Initialize Spark Session
+spark = SparkSession.builder.appName("CrimeAnalysis").getOrCreate()
+
+# Step 2: Load the Dataset
+file_path = "/content/Indian_Crime_Dataset.csv"
+df = spark.read.csv(file_path, header=True, inferSchema=True)
+
+# Step 3: Display First Few Rows
+df.show(5)
+
+# Step 4: Check Schema and Basic Stats
+df.printSchema()
+df.describe().show()
+
+# Step 5: Data Cleaning - Handling Missing Values
+df = df.dropna()
+
+# Step 6: Extract Year, Month, and Day of the Week
+df = df.withColumn("Year", year(col("Date")))
+df = df.withColumn("Month", month(col("Date")))
+df = df.withColumn("DayOfWeek", dayofweek(col("Date")))
+
+# Step 7: Crime Trend Analysis Over the Years
+crime_trends = df.groupBy("Year").agg(count("*").alias("Crime_Count")).orderBy("Year")
+crime_trends_pd = crime_trends.toPandas()
+
+plt.figure(figsize=(10,5))
+sns.lineplot(x=crime_trends_pd["Year"], y=crime_trends_pd["Crime_Count"], marker="o")
+plt.title("Crime Trends Over the Years")
+plt.xlabel("Year")
+plt.ylabel("Number of Crimes")
+plt.grid()
+plt.show()
+
+# Step 8: Most Common Crimes
+common_crimes = df.groupBy("Crime_Type").agg(count("*").alias("Count")).orderBy(col("Count").desc())
+common_crimes.show(10)
+
+# Step 9: High-Crime Locations
+high_crime_locations = df.groupBy("Location").agg(count("*").alias("Crime_Count")).orderBy(col("Crime_Count").desc())
+high_crime_locations.show(10)
+
+# Step 10: Crime Distribution by Day of the Week
+daywise_crime = df.groupBy("DayOfWeek").agg(count("*").alias("Crime_Count")).orderBy("DayOfWeek")
+daywise_crime_pd = daywise_crime.toPandas()
+
+plt.figure(figsize=(8,5))
+sns.barplot(x=["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], y=daywise_crime_pd["Crime_Count"], palette="coolwarm")
+plt.title("Crime Distribution by Day of the Week")
+plt.xlabel("Day of the Week")
+plt.ylabel("Number of Crimes")
+plt.show()
+
+# Step 11: Future Crime Prediction using XGBoost
+from xgboost import XGBRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error
+
+# Convert to Pandas for ML
+ml_data = crime_trends.toPandas()
+X = ml_data[["Year"]]
+y = ml_data["Crime_Count"]
+
+# Train-Test Split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Train XGBoost Model
+model = XGBRegressor()
+model.fit(X_train, y_train)
+
+# Predict Future Crimes
+y_pred = model.predict(X_test)
+mae = mean_absolute_error(y_test, y_pred)
+print(f"Model MAE: {mae}")
+
+# Predict Crimes for Future Years
+future_years = pd.DataFrame({"Year": list(range(2025, 2031))})
+future_predictions = model.predict(future_years)
+future_years["Predicted_Crime_Count"] = future_predictions
+print(future_years)
